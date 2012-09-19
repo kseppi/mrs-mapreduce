@@ -49,12 +49,19 @@ class ReadBucket(object):
     Attributes:
         source: An integer showing which source the data come from.
         split: An integer showing which split the data is directed to.
+        key_serializer: A Serializer (or namedtuple): functions for
+            serializing and deserializing between Python objects and bytes.
+        value_serializer: A Serializer (or namedtuple): functions for
+            serializing and deserializing between Python objects and bytes.
         url: A string showing a URL that can be used to read the data.
     """
-    def __init__(self, source, split):
+    def __init__(self, source, split, key_serializer=None,
+            value_serializer=None):
         self._data = []
         self.source = source
         self.split = split
+        self.key_serializer = key_serializer
+        self.value_serializer = value_serializer
         self.url = None
 
     def addpair(self, kvpair):
@@ -83,7 +90,8 @@ class ReadBucket(object):
         state = self.__dict__.copy()
         if self._data:
             buf = BytesIO()
-            with fileformats.BinWriter(buf) as writer:
+            with fileformats.BinWriter(buf, self.key_serializer,
+                    self.value_serializer) as writer:
                 for pair in self._data:
                     writer.writepair(pair)
             state['_data'] = buf.getvalue()
@@ -102,7 +110,8 @@ class ReadBucket(object):
             #with io.BytesIO(self._data) as buf:
             buf = BytesIO(self._data)
             self._data = []
-            reader = fileformats.BinReader(buf)
+            reader = fileformats.BinReader(buf, self.key_serializer,
+                    self.value_serializer)
             self.collect(reader)
             buf.close()
 
@@ -127,6 +136,10 @@ class WriteBucket(ReadBucket):
         url: Always None: use `readonly_copy` to make it readable
         source: An integer showing which source the data come from.
         split: An integer showing which split the data is directed to.
+        key_serializer: A Serializer (or namedtuple): functions for
+            serializing and deserializing between Python objects and bytes.
+        value_serializer: A Serializer (or namedtuple): functions for
+            serializing and deserializing between Python objects and bytes.
         dir: A string specifying the directory for writes.
         format: The class to be used for formatting writes.
         path: The local path of the written file.
@@ -141,8 +154,8 @@ class WriteBucket(ReadBucket):
     'This is a test'
     >>>
     """
-    def __init__(self, source, split, dir=None, format=None):
-        super(WriteBucket, self).__init__(source, split)
+    def __init__(self, source, split, dir=None, format=None, **kwds):
+        super(WriteBucket, self).__init__(source, split, **kwds)
         self.dir = dir
         if format is None:
             format = fileformats.default_write_format
@@ -156,7 +169,8 @@ class WriteBucket(ReadBucket):
         raise NotImplementedError
 
     def readonly_copy(self):
-        b = ReadBucket(self.source, self.split)
+        b = ReadBucket(self.source, self.split, self.key_serializer,
+                self.value_serializer)
         b._data = self._data
         b.url = self._filename
         return b
@@ -173,7 +187,8 @@ class WriteBucket(ReadBucket):
             suffix='.' + self.format.ext
             self._output_file, self._filename = util.mktempfile(self.dir,
                     self.prefix(), suffix)
-            self._writer = self.format(self._output_file)
+            self._writer = self.format(self._output_file, self.key_serializer,
+                    self.value_serializer)
 
     def close_writer(self, do_sync):
         """Close the bucket for future writes."""

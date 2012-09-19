@@ -23,6 +23,7 @@
 from __future__ import division, print_function
 
 import codecs
+import functools
 import gzip
 from itertools import islice
 import os
@@ -58,9 +59,28 @@ class Writer(object):
     Writers do not flush or close the file object.
 
     This class is abstract.
+
+    Parameters:
+        fileobj: A file or filelike object.
+        key_serializer: An object (such as a namedtuple) for serializing
+            keys from Python objects to bytes.  If None, use pickle.
+            Otherwise, use `key_serializer.dumps`.  A `dumps` function set to
+            None indicates that the keys are already bytes.
+        value_serializer: An object (such as a namedtuple) for serializing
+            values from Python objects to bytes.  If None, use pickle.
+            Otherwise, use `value_serializer.dumps`.  A `dumps` function set
+            to None indicates that the values are already bytes.
     """
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, key_serializer=None, value_serializer=None):
         self.fileobj = fileobj
+        if key_serializer is None:
+            self.dumps_key = functools.partial(pickle.dumps, protocol=-1)
+        else:
+            self.dumps_key = serializer.dumps
+        if value_serializer is None:
+            self.dumps_value = functools.partial(pickle.dumps, protocol=-1)
+        else:
+            self.dumps_value = serializer.dumps
 
     def writepair(self, kvpair):
         raise NotImplementedError
@@ -82,9 +102,28 @@ class Reader(object):
     is used as a context manager (with the "with" statement).
 
     This class is abstract.
+
+    Parameters:
+        fileobj: A file or filelike object.
+        key_serializer: An object (such as a namedtuple) for deserializing
+            keys from bytes to Python objects.  If None, use pickle.
+            Otherwise, use `key_serializer.loads`.  A `loads` function set to
+            None indicates that the keys are kept as bytes.
+        value_serializer: An object (such as a namedtuple) for deserializing
+            values from bytes to Python objects.  If None, use pickle.
+            Otherwise, use `value_serializer.loads`.  A `loads` function set
+            to None indicates that the values are kept as bytes.
     """
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, key_serializer=None, value_serializer=None):
         self.fileobj = fileobj
+        if key_serializer is None:
+            self.loads_key = pickle.loads
+        else:
+            self.loads_key = serializer.loads
+        if value_serializer is None:
+            self.loads_value = pickle.loads
+        else:
+            self.loads_value = serializer.loads
 
     def __iter__(self, kvpair):
         raise NotImplementedError
@@ -105,10 +144,10 @@ class LineReader(Reader):
     In this basic reader, the key-value pair is composed of a line number and
     line contents (as a string).
     """
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, *args, **kwds):
         if PY3:
             fileobj = io.TextIOWrapper(fileobj, encoding='utf-8')
-        self.fileobj = fileobj
+        super(LineReader, self).__init__(fileobj, *args, **kwds)
 
     def __iter__(self):
         """Iterate over key-value pairs.
@@ -144,10 +183,10 @@ class TextWriter(Writer):
     """
     ext = 'mtxt'
 
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, *args, **kwds):
         if PY3:
             fileobj = io.TextIOWrapper(fileobj, encoding='utf-8', newline='\n')
-        self.fileobj = fileobj
+        super(TextWriter, self).__init__(fileobj, *args, **kwds)
 
     def writepair(self, kvpair):
         key, value = kvpair
@@ -164,8 +203,12 @@ class HexReader(Reader):
         """Iterate over key-value pairs."""
         for line in self.fileobj:
             encoded_key, encoded_value = line.split()
-            key, length = pickle.loads(hex_decoder(encoded_key))
-            value, length = pickle.loads(hex_decoder(encoded_value))
+            key, _ = hex_decoder(encoded_key)
+            value, _ = hex_decoder(encoded_value)
+            if self.loads_key is not None:
+                key = self.loads_key(key)
+            if self.loads_value is not None:
+                value = self.loads_value(value)
             yield (key, value)
 
 
@@ -177,14 +220,15 @@ class HexWriter(Writer):
     """
     ext = 'mrsx'
 
-    def __init__(self, fileobj):
-        self.fileobj = fileobj
-
     def writepair(self, kvpair):
         """Write a key-value pair."""
         key, value = kvpair
-        encoded_key, length = hex_encoder(pickle.dumps(key, -1))
-        encoded_value, length = hex_encoder(pickle.dumps(value, -1))
+        if self.dumps_key is not None:
+            key = self.dumps_key(key)
+        if self.dumps_value is not None:
+            value = self.dumps_value(value)
+        encoded_key, length = hex_encoder(key)
+        encoded_value, length = hex_encoder(value)
         print(encoded_key, encoded_value, file=self.fileobj)
 
 
@@ -198,15 +242,17 @@ class BinWriter(Writer):
     ext = 'mrsb'
     magic = b'MrsB'
 
-    def __init__(self, fileobj, close=True):
-        self.fileobj = fileobj
+    def __init__(self, fileobj, *args, **kwds):
+        super(BinWriter, self).__init__(fileobj, *args, **kwds)
         self.fileobj.write(self.magic)
 
     def writepair(self, kvpair):
         """Write a key-value pair."""
         key, value = kvpair
-        key = pickle.dumps(key, -1)
-        value = pickle.dumps(value, -1)
+        if self.dumps_key is not None:
+            key = self.dumps_key(key)
+        if self.dumps_value is not None:
+            value = self.dumps_value(value)
 
         binlen = struct.pack('<L', len(key))
         self.fileobj.write(binlen)
@@ -221,8 +267,8 @@ class BinReader(Reader):
     """A key-value store using a simple binary record format."""
     magic = b'MrsB'
 
-    def __init__(self, fileobj):
-        self.fileobj = fileobj
+    def __init__(self, fileobj, *args, **kwds):
+        super(BinReader, self).__init__(fileobj, *args, **kwds)
         self._buffer = b''
         self._magic_read = False
 
@@ -243,8 +289,10 @@ class BinReader(Reader):
             value = self._read_record()
             if value is None:
                 raise RuntimeError('File ended with a lone key')
-            key = pickle.loads(key)
-            value = pickle.loads(value)
+            if self.loads_key is not None:
+                key = self.loads_key(key)
+            if self.loads_value is not None:
+                value = self.loads_value(value)
             yield (key, value)
 
     def _fill_buffer(self, size=DEFAULT_BUFFER_SIZE):
@@ -282,10 +330,10 @@ class ZipWriter(BinWriter):
     ext = 'mrsz'
     magic = b'MrsZ'
 
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, *args, **kwds):
         fileobj = gzip.GzipFile(fileobj=fileobj, mode='wb',
                 compresslevel=COMPRESS_LEVEL)
-        super(ZipWriter, self).__init__(fileobj)
+        super(ZipWriter, self).__init__(fileobj, *args, **kwds)
 
     def finish(self):
         # Close the gzip file (which does not close the underlying file).
@@ -296,10 +344,10 @@ class ZipReader(BinReader):
     """A key-value store using a simple compressed binary record format."""
     magic = b'MrsZ'
 
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, *args, **kwds):
         self.original_file = fileobj
         fileobj = gzip.GzipFile(fileobj=fileobj, mode='rb')
-        super(ZipReader, self).__init__(fileobj)
+        super(ZipReader, self).__init__(fileobj, *args, **kwds)
 
     def close(self):
         # Close the gzip file (which does not close the underlying file).
@@ -320,10 +368,6 @@ class PickleWriter(Writer):
     """
     ext = 'mrsp'
 
-    def __init__(self, fileobj, close=True):
-        self.fileobj = fileobj
-        #self.pickler = pickle.Pickler(fileobj, -1)
-
     def writepair(self, kvpair):
         """Write a key-value pair."""
         key, value = kvpair
@@ -337,10 +381,6 @@ class PickleWriter(Writer):
 
 class PickleReader(Reader):
     """An EXPERIMENTAL key-value store using the standard pickle format."""
-    def __init__(self, fileobj):
-        self.fileobj = fileobj
-        #self.unpickler = pickle.Unpickler(fileobj)
-
     def __iter__(self):
         """Iterate over key-value pairs."""
         unpickler = pickle.Unpickler(self.fileobj)

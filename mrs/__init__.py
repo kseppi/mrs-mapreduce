@@ -53,10 +53,13 @@ from . import version
 from .fileformats import HexWriter, TextWriter, BinWriter, ZipWriter
 from .main import main
 from .mapreduce import MapReduce, IterativeMR
+from .serializer import (key_serializer, value_serializer, str_serializer,
+        int_serializer)
 
 __version__ = version.__version__
 
 # We need to set __all__ to make sure that pydoc has everything:
-__all__ = ['logger', 'HexWriter', 'TextWriter', '__version__', 'main',]
+__all__ = ['MapReduce', 'main', 'logger', 'BinWriter', 'HexWriter',
+    'TextWriter', 'str_serializer', 'int_serializer']
 
 # vim: et sw=4 sts=4

@@ -128,6 +128,7 @@ class Job(object):
             parter = self.default_partition
 
         map_name = self._registry[mapper]
+        self._set_serializers(mapper, kwds)
         if combiner:
             combine_name = self._registry[combiner]
         else:
@@ -163,6 +164,7 @@ class Job(object):
             parter = self.default_partition
 
         reduce_name = self._registry[reducer]
+        self._set_serializers(reducer, kwds)
         part_name = self._registry[parter]
 
         op = tasks.ReduceOperation(reduce_name, part_name)
@@ -192,6 +194,7 @@ class Job(object):
 
         reduce_name = self._registry[reducer]
         map_name = self._registry[mapper]
+        self._set_serializers(mapper, kwds)
         if combiner:
             combine_name = self._registry[combiner]
         else:
@@ -209,6 +212,13 @@ class Job(object):
     def progress(self, dataset):
         """Reports the progress (fraction complete) of the given dataset."""
         return self._manager.progress(dataset)
+
+    def _set_serializers(self, f, kwds):
+        """Add any serializers specified on the given function to kwds."""
+        if hasattr(f, 'key_serializer') and 'key_serializer' not in kwds:
+            kwds['key_serializer'] = f.key_serializer
+        if hasattr(f, 'value_serializer') and 'value_serializer' not in kwds:
+            kwds['value_serializer'] = f.value_serializer
 
 
 def job_process(program_class, opts, args, default_dir, pipe,

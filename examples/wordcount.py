@@ -31,6 +31,8 @@ class WordCount(mrs.MapReduce):
     working example and is provided to demonstrate a simple Mrs program. It is
     further explained in the tutorials provided in the docs directory.
     """
+    @mrs.key_serializer(mrs.str_serializer)
+    @mrs.value_serializer(mrs.int_serializer)
     def map(self, key, value):
         for word in value.split():
             word = word.strip(string.punctuation).lower()

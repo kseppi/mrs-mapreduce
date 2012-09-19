@@ -57,6 +57,7 @@ class ComputedData(datasets.RemoteData):
             blocking_percent=1, backlink=None, async_start=False, **kwds):
         # Create exactly one task for each split in the input.
         self.ntasks = input.splits
+
         super(ComputedData, self).__init__(**kwds)
 
         self.op = operation

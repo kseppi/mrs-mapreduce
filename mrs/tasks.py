@@ -40,7 +40,7 @@ class Task(object):
     this Task.
     """
     def __init__(self, op, input_ds, dataset_id, task_index, splits, storage,
-            ext):
+            ext, serializers):
         self.op = op
         self.input_ds = input_ds
         self.dataset_id = dataset_id
@@ -48,6 +48,7 @@ class Task(object):
         self.splits = splits
         self.storage = storage if (storage is not None) else ''
         self.ext = ext
+        self.serializers = serializers
 
         self.outdir = None
         self.output = None

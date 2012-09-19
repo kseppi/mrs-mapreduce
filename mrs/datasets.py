@@ -53,12 +53,15 @@ class BaseDataset(object):
             split from all sources, use splitdata()
     """
     def __init__(self, splits=0, dir=None, format=None, permanent=True,
-            **kwds):
-        self.id = util.random_string(DATASET_ID_LENGTH)
+            key_serializer=None, value_serializer=None):
         self.splits = splits
         self.dir = dir
         self.format = format
         self.permanent = permanent
+        self.key_serializer = key_serializer
+        self.value_serializer = value_serializer
+
+        self.id = util.random_string(DATASET_ID_LENGTH)
         self.closed = False
         self._close_callback = None
         self._extended_sources = 0
@@ -247,7 +250,9 @@ class LocalData(BaseDataset):
     def _make_bucket(self, source, split):
         assert not self.collected
         assert source == self.fixed_source
-        return bucket.WriteBucket(source, split, self.dir, self.format)
+        return bucket.WriteBucket(source, split, self.dir, self.format,
+                key_serializer=self.key_serializer,
+                value_serializer=self.value_serializer)
 
     def _collect(self, itr, parter):
         """Collect all of the key-value pairs from the given iterator."""
@@ -291,7 +296,9 @@ class RemoteData(BaseDataset):
         self._fetched = False
 
     def _make_bucket(self, source, split):
-        return bucket.ReadBucket(source, split)
+        return bucket.ReadBucket(source, split,
+                key_serializer=self.key_serializer,
+                value_serializer=self.value_serializer)
 
     def __getstate__(self):
         """Pickle without getting certain forbidden/unnecessary elements."""

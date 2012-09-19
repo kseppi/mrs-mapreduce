@@ -38,6 +38,8 @@ class WordCount2(mrs.MapReduce):
     3. It uses the reduce function as a combiner.
     """
 
+    @mrs.key_serializer(mrs.str_serializer)
+    @mrs.value_serializer(mrs.int_serializer)
     def map(self, key, value):
         for word in value.split():
             word = word.strip(string.punctuation).lower()
